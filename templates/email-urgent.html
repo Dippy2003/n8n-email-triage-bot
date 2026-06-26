@@ -1,0 +1,30 @@
+<!--
+  Urgent ticket auto-reply.
+  Placeholders ({{ ... }}) match n8n expression syntax — replace at render time
+  via the Code node (Build Templates & Merge) or by string-templating this file.
+  Required placeholders: {{ companyName }}, {{ ticketRef }}
+-->
+<div style="font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:600px;margin:0 auto">
+  <div style="background:#dc2626;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:20px">🚨 {{ companyName }} — Urgent Request Received</h2>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+    <p>Hi there,</p>
+    <p>We've received your <strong>urgent</strong> request and it has been escalated to our support lead immediately.</p>
+    <p style="background:#fef2f2;border-left:4px solid #dc2626;padding:10px 14px;border-radius:4px">
+      <strong>You can expect a response within 1 hour.</strong>
+    </p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0">
+      <tr>
+        <td style="padding:6px 0;color:#6b7280">Ticket Reference</td>
+        <td style="padding:6px 0;font-weight:bold">{{ ticketRef }}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:#6b7280">Priority</td>
+        <td style="padding:6px 0;font-weight:bold;color:#dc2626">High</td>
+      </tr>
+    </table>
+    <p>Please keep this reference number for any follow-up correspondence.</p>
+    <p>Warm regards,<br/><strong>{{ companyName }} Support Team</strong></p>
+  </div>
+</div>

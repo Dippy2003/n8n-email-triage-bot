@@ -1,0 +1,29 @@
+<!--
+  Billing ticket auto-reply.
+  Required placeholders: {{ companyName }}, {{ ticketRef }}
+-->
+<div style="font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:600px;margin:0 auto">
+  <div style="background:#2563eb;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:20px">💳 {{ companyName }} — Billing Query Received</h2>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+    <p>Hi there,</p>
+    <p>Thank you for contacting us about your billing query. Your ticket has been created and routed to our billing team.</p>
+    <p style="background:#eff6ff;border-left:4px solid #2563eb;padding:10px 14px;border-radius:4px">
+      For faster assistance, you can also reach our billing team directly at
+      <a href="mailto:billing@company.com" style="color:#2563eb">billing@company.com</a>.
+    </p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0">
+      <tr>
+        <td style="padding:6px 0;color:#6b7280">Ticket Reference</td>
+        <td style="padding:6px 0;font-weight:bold">{{ ticketRef }}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:#6b7280">Category</td>
+        <td style="padding:6px 0;font-weight:bold">Billing</td>
+      </tr>
+    </table>
+    <p>Please include your ticket reference in any follow-up emails.</p>
+    <p>Warm regards,<br/><strong>{{ companyName }} Billing Team</strong></p>
+  </div>
+</div>

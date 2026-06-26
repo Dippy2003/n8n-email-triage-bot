@@ -1,0 +1,721 @@
+{
+  "name": "AI Support Ticket Router (Groq)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {},
+        "options": {}
+      },
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        400
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CRED_ID",
+          "name": "Gmail account"
+        }
+      },
+      "notes": "Polls Gmail inbox every 1 minute for new messages (Community Edition has no real-time push without GCP Pub/Sub)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "emailSubject",
+              "value": "={{ $json.subject || $json.headers?.subject || 'No Subject' }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "emailBody",
+              "value": "={{ ($json.text || $json.snippet || $json.html || '').toString().trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "sender",
+              "value": "={{ $json.from?.value?.[0]?.address || $json.from?.text || $json.headers?.from || 'unknown@unknown.com' }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "receivedDate",
+              "value": "={{ $json.date || $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "messageId",
+              "value": "={{ $json.id || $json.messageId || $now.toMillis().toString() }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "ticketRef",
+              "value": "=TKT-{{ $now.toFormat('yyyyLLdd') }}-{{ $now.toMillis().toString().slice(-6) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Extract Email Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        400
+      ],
+      "notes": "Normalizes the Gmail trigger output into clean fields used downstream. Generates a ticket reference number."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sender }}",
+              "rightValue": "={{ $env.SUPPORT_INBOX_EMAIL }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.emailSubject }}",
+              "rightValue": "TKT-",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "name": "Is Real Customer Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        580,
+        400
+      ],
+      "notes": "Loop guard: drops any message sent FROM the support inbox itself (our own auto-replies) or whose subject already contains a TKT- reference, so the bot never replies to its own replies."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.GROQ_BASE_URL }}/chat/completions",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $env.GROQ_MODEL }}\",\n  \"temperature\": 0,\n  \"max_tokens\": 100,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a strict email classification engine for a customer support system. You MUST respond with ONLY a single minified JSON object and nothing else. Schema: {\\\"category\\\": \\\"Urgent|Billing|General\\\", \\\"urgency\\\": \\\"High|Medium|Low\\\"}. Rules: Use 'Urgent' for outages, security issues, account lockouts, angry/time-critical language. Use 'Billing' for invoices, payments, refunds, charges, subscriptions, pricing. Use 'General' for everything else including questions, feedback, greetings. If the email is empty, spam, or unclear, return {\\\"category\\\":\\\"General\\\",\\\"urgency\\\":\\\"Low\\\"}. Never add explanations, markdown, or code fences.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('Subject: ' + ($json.emailSubject || '') + '\\nBody: ' + ($json.emailBody || '')) }}\n    }\n  ]\n}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "33333333-3333-4333-8333-333333333333",
+      "name": "Groq Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        400
+      ],
+      "notes": "Calls Groq (OpenAI-compatible). temperature=0 + response_format json_object for deterministic strict JSON. neverError=true so the Code node can handle failures gracefully."
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsConfig": "",
+        "jsCode": "// ============================================================\n// Parse Groq Response — production-safe classification parser\n// ============================================================\n// Reads the upstream Groq HTTP response, extracts category +\n// urgency, validates them, and ALWAYS returns clean output.\n// On ANY failure it defaults to General / Low so the workflow\n// never breaks a ticket.\n// ============================================================\n\nconst VALID_CATEGORIES = ['Urgent', 'Billing', 'General'];\nconst VALID_URGENCIES = ['High', 'Medium', 'Low'];\n\n// Pull the original email fields forwarded from \"Extract Email Fields\".\nconst email = $('Extract Email Fields').item.json;\n\n// Defaults — used whenever anything goes wrong.\nlet category = 'General';\nlet urgency = 'Low';\nlet parseStatus = 'ok';\n\ntry {\n  const resp = $input.item.json;\n\n  // 1) Detect upstream HTTP / network errors (neverError surfaced them here).\n  if (resp.error || resp.code || resp.message) {\n    throw new Error('Groq API error: ' + JSON.stringify(resp.error || resp.message || resp.code));\n  }\n\n  // 2) Locate the model's text output (OpenAI-compatible shape).\n  const raw = resp?.choices?.[0]?.message?.content;\n  if (!raw || typeof raw !== 'string') {\n    throw new Error('Missing choices[0].message.content in Groq response');\n  }\n\n  // 3) Strip any accidental code fences, then isolate the JSON object.\n  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (!match) {\n    throw new Error('No JSON object found in model output: ' + cleaned.slice(0, 120));\n  }\n\n  // 4) Parse safely.\n  const parsed = JSON.parse(match[0]);\n\n  // 5) Validate fields; fall back to defaults if invalid.\n  if (VALID_CATEGORIES.includes(parsed.category)) {\n    category = parsed.category;\n  } else {\n    parseStatus = 'invalid_category';\n  }\n  if (VALID_URGENCIES.includes(parsed.urgency)) {\n    urgency = parsed.urgency;\n  } else {\n    parseStatus = 'invalid_urgency';\n  }\n\n  console.log('[Groq parse] OK ->', { category, urgency, ticketRef: email.ticketRef });\n} catch (err) {\n  // Any failure: log it, keep safe defaults.\n  parseStatus = 'fallback';\n  console.error('[Groq parse] FAILED, defaulting to General/Low ->', err.message);\n}\n\n// 6) Return one clean item with everything downstream nodes need.\nreturn [\n  {\n    json: {\n      category,\n      urgency,\n      parseStatus,\n      emailSubject: email.emailSubject || 'No Subject',\n      emailBody: email.emailBody || '',\n      sender: email.sender || 'unknown@unknown.com',\n      receivedDate: email.receivedDate || new Date().toISOString(),\n      ticketRef: email.ticketRef || ('TKT-' + Date.now()),\n      messageId: email.messageId || '',\n      classifiedAt: new Date().toISOString()\n    }\n  }\n];\n"
+      },
+      "id": "44444444-4444-4444-8444-444444444444",
+      "name": "Parse Groq Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        400
+      ],
+      "notes": "Defensive JSON parsing. Never throws — always emits {category, urgency, ...} defaulting to General/Low on error."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "Urgent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Urgent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "Billing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Billing"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "General",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "General"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "General"
+        }
+      },
+      "id": "55555555-5555-4555-8555-555555555555",
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1240,
+        400
+      ],
+      "notes": "Routes on category. Fallback output also goes to the General branch so nothing is ever dropped."
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// ============================================================\n// Build Slack Blocks — constructs Slack Block Kit JSON as a\n// real JS object and serializes with JSON.stringify, instead of\n// hand-writing JSON-with-expressions (which breaks on \\n inside\n// mrkdwn text: n8n resolves {{ }} via template literals, turning\n// literal \\n into raw newline bytes that JSON.parse rejects).\n// ============================================================\n\nconst j = $input.item.json;\n\nconst blocks = {\n  blocks: [\n    { type: 'header', text: { type: 'plain_text', text: '🚨 Urgent Support Ticket', emoji: true } },\n    { type: 'section', fields: [\n      { type: 'mrkdwn', text: `*Ticket:*\\n${j.ticketRef}` },\n      { type: 'mrkdwn', text: `*Urgency:*\\n${j.urgency}` },\n      { type: 'mrkdwn', text: `*From:*\\n${j.sender}` },\n      { type: 'mrkdwn', text: `*Received:*\\n${j.receivedDate}` }\n    ] },\n    { type: 'section', text: { type: 'mrkdwn', text: `*Subject:* ${j.emailSubject}` } },\n    { type: 'context', elements: [ { type: 'mrkdwn', text: 'Auto-routed by AI Support Router • category=Urgent' } ] }\n  ]\n};\n\nreturn [\n  {\n    json: {\n      ...j,\n      slackBlocksJson: JSON.stringify(blocks)\n    }\n  }\n];\n"
+      },
+      "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "name": "Build Slack Blocks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        200
+      ],
+      "notes": "Serializes Block Kit JSON safely via JSON.stringify so embedded \\n in mrkdwn text round-trips correctly. Feeds Slack Alert (Urgent)."
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $env.SUPPORT_LEAD_SLACK_CHANNEL }}",
+          "mode": "name"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ $json.slackBlocksJson }}",
+        "otherOptions": {}
+      },
+      "id": "66666666-6666-4666-8666-666666666666",
+      "name": "Slack Alert (Urgent)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1500,
+        200
+      ],
+      "webhookId": "",
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CRED_ID",
+          "name": "Slack account"
+        }
+      },
+      "notes": "Posts a Block Kit alert to the support-lead channel for Urgent tickets."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.NOTION_TOKEN }}" },
+            { "name": "Notion-Version", "value": "2022-06-28" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  parent: { database_id: $env.NOTION_DATABASE_ID },\n  properties: {\n    'Name': { title: [ { text: { content: $json.emailSubject || 'No Subject' } } ] },\n    'Sender': { rich_text: [ { text: { content: $json.sender || '' } } ] },\n    'Category': { select: { name: $json.category || 'Billing' } },\n    'Urgency': { select: { name: $json.urgency || 'Low' } },\n    'Status': { select: { name: 'New' } },\n    'Ticket Ref': { rich_text: [ { text: { content: $json.ticketRef || '' } } ] },\n    'Received': { date: { start: $json.receivedDate || $now.toISO() } },\n    'Notes': { rich_text: [ { text: { content: ($json.emailBody || '').slice(0, 1900) } } ] }\n  }\n}) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "77777777-7777-4777-8777-777777777777",
+      "name": "Notion Ticket (Billing)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        400
+      ],
+      "notes": "Creates a ticket page directly via Notion's REST API (POST /v1/pages), bypassing the n8n Notion node's UI/version mismatch issues. Property names must exactly match the Notion database's column names and types."
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.sender }}",
+        "subject": "=Re: {{ $json.emailSubject }} [{{ $json.ticketRef }}]",
+        "emailType": "html",
+        "message": "={{ $json.generalReplyHtml }}",
+        "options": {}
+      },
+      "id": "88888888-8888-4888-8888-888888888888",
+      "name": "Gmail Auto-Reply (General)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2240,
+        660
+      ],
+      "webhookId": "",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CRED_ID",
+          "name": "Gmail account"
+        }
+      },
+      "notes": "Sends the FAQ auto-reply ONLY to General-category customers. HTML built in the Build Templates node."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "General",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "name": "Is General?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        600
+      ],
+      "notes": "Gates the FAQ auto-reply so only General-category tickets receive it, even though this branch now sees all categories after the merge."
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// ============================================================\n// Build Templates — generates HTML email bodies + merges all\n// three Switch branches back into a single stream for the\n// universal confirmation email + logging.\n// ============================================================\n// The Switch sends each item down ONE branch; we connect all\n// branches here so every ticket (Urgent/Billing/General) gets\n// a confirmation email and a Sheets log row.\n//\n// Templates mirror the static files in /templates/*.html so the\n// design stays in sync if you edit either copy.\n// ============================================================\n\nconst COMPANY = $env.COMPANY_NAME || 'Our Support Team';\nconst FAQ_LINK = $env.FAQ_LINK || 'https://example.com/faq';\nconst out = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  const ref = j.ticketRef || ('TKT-' + Date.now());\n  const subject = j.emailSubject || 'your request';\n\n  // ---- Universal confirmation email (sent to ALL categories) ----\n  const confirmationHtml = `\n  <div style=\"font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6\">\n    <h2 style=\"color:#2563eb;margin:0 0 8px\">${COMPANY}</h2>\n    <p>Hi there,</p>\n    <p>We've received your message regarding \"<strong>${subject}</strong>\" and created a support ticket.</p>\n    <p style=\"background:#f1f5f9;padding:10px 14px;border-radius:6px\">\n      <strong>Ticket Reference:</strong> ${ref}<br/>\n      <strong>Category:</strong> ${j.category}<br/>\n      <strong>Priority:</strong> ${j.urgency}\n    </p>\n    <p>Our team will follow up shortly. Please keep this reference for any replies.</p>\n    <p>Warm regards,<br/>${COMPANY}</p>\n  </div>`;\n\n  // ---- Urgent-only escalation reply (mirrors templates/email-urgent.html) ----\n  const urgentReplyHtml = `\n  <div style=\"font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:600px;margin:0 auto\">\n    <div style=\"background:#dc2626;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0\">\n      <h2 style=\"margin:0;font-size:20px\">\\u{1F6A8} ${COMPANY} \\u2014 Urgent Request Received</h2>\n    </div>\n    <div style=\"border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px\">\n      <p>Hi there,</p>\n      <p>We've received your <strong>urgent</strong> request and it has been escalated to our support lead immediately.</p>\n      <p style=\"background:#fef2f2;border-left:4px solid #dc2626;padding:10px 14px;border-radius:4px\"><strong>You can expect a response within 1 hour.</strong></p>\n      <p><strong>Ticket Reference:</strong> ${ref}</p>\n      <p>Warm regards,<br/><strong>${COMPANY} Support Team</strong></p>\n    </div>\n  </div>`;\n\n  // ---- Billing-only reply (mirrors templates/email-billing.html) ----\n  const billingReplyHtml = `\n  <div style=\"font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:600px;margin:0 auto\">\n    <div style=\"background:#2563eb;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0\">\n      <h2 style=\"margin:0;font-size:20px\">\\u{1F4B3} ${COMPANY} \\u2014 Billing Query Received</h2>\n    </div>\n    <div style=\"border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px\">\n      <p>Hi there,</p>\n      <p>Thank you for contacting us about your billing query. Your ticket has been created and routed to our billing team.</p>\n      <p style=\"background:#eff6ff;border-left:4px solid #2563eb;padding:10px 14px;border-radius:4px\">For faster assistance, contact <a href=\"mailto:billing@company.com\" style=\"color:#2563eb\">billing@company.com</a>.</p>\n      <p><strong>Ticket Reference:</strong> ${ref}</p>\n      <p>Warm regards,<br/><strong>${COMPANY} Billing Team</strong></p>\n    </div>\n  </div>`;\n\n  // ---- General-only FAQ auto-reply (mirrors templates/email-general.html) ----\n  const generalReplyHtml = `\n  <div style=\"font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6\">\n    <h2 style=\"color:#16a34a;margin:0 0 8px\">${COMPANY}</h2>\n    <p>Hi there,</p>\n    <p>Thanks for reaching out! While our team reviews your message, you may find a quick answer in our FAQ.</p>\n    <p><a href=\"${FAQ_LINK}\" style=\"color:#2563eb\">Visit our FAQ &raquo;</a></p>\n    <p style=\"background:#f0fdf4;padding:10px 14px;border-radius:6px\"><strong>Ticket Reference:</strong> ${ref}</p>\n    <p>Warm regards,<br/>${COMPANY}</p>\n  </div>`;\n\n  out.push({\n    json: {\n      ...j,\n      company: COMPANY,\n      confirmationHtml,\n      urgentReplyHtml,\n      billingReplyHtml,\n      generalReplyHtml,\n      logStatus: 'Routed',\n      logNotes: `category=${j.category}; urgency=${j.urgency}; parse=${j.parseStatus || 'ok'}`\n    }\n  });\n}\n\nreturn out;\n"
+      },
+      "id": "99999999-9999-4999-8999-999999999999",
+      "name": "Build Templates & Merge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        460
+      ],
+      "notes": "Receives all 3 Switch branches (after their category-specific action) and produces HTML + log fields for the universal steps."
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.sender }}",
+        "subject": "=We received your request — {{ $json.ticketRef }}",
+        "emailType": "html",
+        "message": "={{ $json.confirmationHtml }}",
+        "options": {}
+      },
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "name": "Gmail Confirmation (All)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2000,
+        460
+      ],
+      "webhookId": "",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CRED_ID",
+          "name": "Gmail account"
+        }
+      },
+      "notes": "Universal confirmation email sent to every customer regardless of category."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "Timestamp",
+              "value": "={{ $json.classifiedAt }}",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "Sender",
+              "value": "={{ $json.sender }}",
+              "type": "string"
+            },
+            {
+              "id": "s3",
+              "name": "Subject",
+              "value": "={{ $json.emailSubject }}",
+              "type": "string"
+            },
+            {
+              "id": "s4",
+              "name": "Category",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "s5",
+              "name": "Urgency",
+              "value": "={{ $json.urgency }}",
+              "type": "string"
+            },
+            {
+              "id": "s6",
+              "name": "Status",
+              "value": "={{ $json.logStatus }}",
+              "type": "string"
+            },
+            {
+              "id": "s7",
+              "name": "Notes",
+              "value": "={{ $json.logNotes }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "name": "Map Fields for Sheet",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        460
+      ],
+      "notes": "Renames internal field names to match the exact Google Sheet column headers (Timestamp, Sender, Subject, Category, Urgency, Status, Notes) so 'Map Automatically' in the Sheets node matches correctly. includeOtherFields=false drops all other fields so no stray columns get created."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2480,
+        460
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GSHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "notes": "Appends one row per ticket to the 'Logs' sheet tab."
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Email Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Email Fields": {
+      "main": [
+        [
+          {
+            "node": "Is Real Customer Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Real Customer Email?": {
+      "main": [
+        [
+          {
+            "node": "Groq Classify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Groq Classify": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "Route by Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "node": "Build Slack Blocks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion Ticket (Billing)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Templates & Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Slack Blocks": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert (Urgent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Alert (Urgent)": {
+      "main": [
+        [
+          {
+            "node": "Build Templates & Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion Ticket (Billing)": {
+      "main": [
+        [
+          {
+            "node": "Build Templates & Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Templates & Merge": {
+      "main": [
+        [
+          {
+            "node": "Gmail Confirmation (All)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is General?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Map Fields for Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is General?": {
+      "main": [
+        [
+          {
+            "node": "Gmail Auto-Reply (General)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Map Fields for Sheet": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "instanceId": "ai-support-router-n8n"
+  },
+  "tags": []
+}

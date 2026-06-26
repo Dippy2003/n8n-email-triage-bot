@@ -1,0 +1,28 @@
+<!--
+  General ticket auto-reply (FAQ pointer).
+  Required placeholders: {{ companyName }}, {{ ticketRef }}, {{ faqLink }}
+-->
+<div style="font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:600px;margin:0 auto">
+  <div style="background:#16a34a;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:20px">✅ {{ companyName }} — Thanks for Reaching Out</h2>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+    <p>Hi there,</p>
+    <p>Thanks for getting in touch! Our team has received your message and will review it shortly.</p>
+    <p style="background:#f0fdf4;border-left:4px solid #16a34a;padding:10px 14px;border-radius:4px">
+      In the meantime, you may find a quick answer in our
+      <a href="{{ faqLink }}" style="color:#16a34a;font-weight:bold">FAQ &raquo;</a>
+    </p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0">
+      <tr>
+        <td style="padding:6px 0;color:#6b7280">Ticket Reference</td>
+        <td style="padding:6px 0;font-weight:bold">{{ ticketRef }}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:#6b7280">Category</td>
+        <td style="padding:6px 0;font-weight:bold">General</td>
+      </tr>
+    </table>
+    <p>Warm regards,<br/><strong>{{ companyName }} Support Team</strong></p>
+  </div>
+</div>

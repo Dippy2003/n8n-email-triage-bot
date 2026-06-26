@@ -1,0 +1,62 @@
+# ==========================================================================
+# docker-compose.yml — n8n Community Edition (local) for AI Support Router
+# --------------------------------------------------------------------------
+# Run:    docker compose up -d        (start in background)
+# Logs:   docker compose logs -f n8n  (follow logs)
+# Stop:   docker compose down         (stop, keep data)
+# UI:     http://localhost:5678
+#
+# NOTE: This is the FREE Community Edition image. No license key required.
+# All secrets are read from the .env file in this same folder (never commit it).
+# ==========================================================================
+
+services:
+  n8n:
+    image: n8nio/n8n:latest            # Official n8n Community Edition image
+    container_name: n8n-support-router
+    restart: unless-stopped            # Auto-restart on crash / Docker restart
+    ports:
+      - "5678:5678"                    # host:container — open http://localhost:5678
+    environment:
+      # ---- Core n8n config -------------------------------------------------
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/   # Base URL n8n uses for webhooks
+      - GENERIC_TIMEZONE=Asia/Colombo        # Change to your timezone (e.g. America/New_York)
+      - TZ=Asia/Colombo
+
+      # ---- Security: encrypt stored credentials at rest --------------------
+      # Must stay constant; if it changes, saved credentials become unreadable.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # ---- Allow the Code node to use external npm modules if ever needed ---
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=*
+
+      # ---- Allow {{ $env.* }} expressions inside node parameters -----------
+      # n8n blocks $env access in node fields by default for security;
+      # our workflow intentionally reads GROQ_API_KEY/GOOGLE_SHEET_ID/etc.
+      # this way instead of hardcoding them, so we must explicitly allow it.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # ---- Custom env vars exposed to workflow expressions -----------------
+      # Referenced in nodes as {{ $env.GROQ_API_KEY }} etc.
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_BASE_URL=${GROQ_BASE_URL}
+      - GROQ_MODEL=${GROQ_MODEL}
+      - COMPANY_NAME=${COMPANY_NAME}
+      - SUPPORT_LEAD_SLACK_CHANNEL=${SUPPORT_LEAD_SLACK_CHANNEL}
+      - NOTION_TOKEN=${NOTION_TOKEN}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
+      - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+      - SUPPORT_INBOX_EMAIL=${SUPPORT_INBOX_EMAIL}
+
+    volumes:
+      # Persist all workflows, credentials and execution history across restarts
+      - n8n_data:/home/node/.n8n
+      # Optional: mount a local folder for file-based imports/exports
+      - ./n8n-local-files:/files
+
+volumes:
+  n8n_data:                            # Named Docker volume (survives `docker compose down`)
