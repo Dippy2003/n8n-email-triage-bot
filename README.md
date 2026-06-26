@@ -62,3 +62,11 @@ templates/            HTML email templates per category
 docs/                 Additional notes
 scripts/              Helper scripts
 ```
+
+## Notable bug fixed: the self-reply loop
+
+While testing by emailing myself, the bot's own auto-reply was picked up by
+the same Gmail trigger as a new incoming message — which got classified
+and replied to again, forever. Fixed with a loop guard that drops any
+email sent from the bot's own address, or whose subject already contains
+an internal ticket reference marker.
