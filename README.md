@@ -7,6 +7,8 @@ logging every ticket to Google Sheets.
 
 No OpenAI dependency: classification runs on Groq's free, fast inference API.
 
+![n8n workflow diagram](docs/images/workflow-diagram.png)
+
 ## How it works
 
 1. **Gmail Trigger** polls a support inbox for new mail.
