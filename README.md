@@ -22,3 +22,12 @@ No OpenAI dependency: classification runs on Groq's free, fast inference API.
    - `General` → an FAQ-pointer auto-reply
 5. Every ticket also gets a universal confirmation email and a logged row
    in Google Sheets, regardless of category.
+
+## Stack
+
+- **n8n** (Community Edition, self-hosted via Docker)
+- **Groq API** (Llama 3.3 70B) for email classification
+- **Gmail API** for the trigger, confirmation, and FAQ auto-reply
+- **Slack API** for urgent alerts
+- **Notion API** (direct REST calls) for billing tickets
+- **Google Sheets API** for the ticket log
