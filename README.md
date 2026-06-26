@@ -31,3 +31,22 @@ No OpenAI dependency: classification runs on Groq's free, fast inference API.
 - **Slack API** for urgent alerts
 - **Notion API** (direct REST calls) for billing tickets
 - **Google Sheets API** for the ticket log
+
+## Setup
+
+1. Copy `.env.example` to `.env` and fill in real values:
+   ```bash
+   cp .env.example .env
+   ```
+2. Start n8n:
+   ```bash
+   docker compose up -d
+   ```
+3. Open `http://localhost:5678`, import `workflow.json`, and connect your
+   Gmail, Slack, and Google Sheets credentials in the UI (Notion auth is
+   handled via the `NOTION_TOKEN` env var directly, not an n8n credential).
+4. Create a Notion database with columns: `Name` (title), `Sender`,
+   `Category`, `Urgency`, `Status`, `Ticket Ref`, `Received`, `Notes` —
+   then share it with your Notion integration via that database's
+   **`⋯` → Connections** menu.
+5. Activate the workflow.
