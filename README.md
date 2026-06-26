@@ -50,3 +50,15 @@ No OpenAI dependency: classification runs on Groq's free, fast inference API.
    then share it with your Notion integration via that database's
    **`⋯` → Connections** menu.
 5. Activate the workflow.
+
+## Project structure
+
+```
+workflow.json        Importable n8n workflow definition
+docker-compose.yml    n8n container + env wiring
+.env.example          Safe template for required secrets/config
+prompts/              Groq classification prompt
+templates/            HTML email templates per category
+docs/                 Additional notes
+scripts/              Helper scripts
+```
